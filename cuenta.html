@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tu cuenta · Shooty</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="favicon.png">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+<header><div class="wrap">
+  <a class="brand" href="./"><img src="icono.png" alt="">Shooty</a>
+  <nav><a href="./">Inicio</a><a href="soporte.html">Soporte</a><a href="privacidad.html">Privacidad</a></nav>
+</div></header>
+<main><div class="wrap">
+  <h1 id="titulo">Tu cuenta</h1>
+  <p class="lead" id="texto">Comprobando el enlace…</p>
+  <form id="form" class="hidden" novalidate>
+    <input id="pass" type="password" autocomplete="new-password" placeholder="Nueva contraseña (mínimo 8 caracteres)" aria-label="Nueva contraseña">
+    <input id="pass2" type="password" autocomplete="new-password" placeholder="Repite la contraseña" aria-label="Repite la contraseña">
+    <button id="guardar" type="submit">Guardar contraseña</button>
+    <p class="msg" id="msg" role="status" aria-live="polite"></p>
+  </form>
+</div></main>
+<footer><div class="wrap"><span>© 2026 Alberto García</span><span><a href="soporte.html">Soporte</a> · <a href="privacidad.html">Política de privacidad</a></span></div></footer>
+<script src="supabase.js"></script>
+<script>
+// Destino de los enlaces de los emails de Shooty (confirmar la cuenta y cambiar la contraseña).
+// La URL y la clave publicable son las mismas que lleva la app; no son secretas.
+(async () => {
+  const SUPABASE_URL = 'https://deybfgxpwqcbkyriousm.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_oNNtuzoFetgdW9SlKN7EQQ_1CXku5ee';
+  const $ = id => document.getElementById(id);
+  const show = (titulo, texto) => { $('titulo').textContent = titulo; $('texto').textContent = texto; };
+
+  // Errores que Supabase devuelve en la URL (enlace caducado, ya usado…)
+  const params = new URLSearchParams(location.hash.slice(1) + '&' + location.search.slice(1));
+  if (params.get('error') || params.get('error_code')) {
+    const caducado = /expired|invalid/i.test(params.get('error_code') + ' ' + params.get('error_description'));
+    show('Enlace no válido', caducado
+      ? 'Este enlace ha caducado o ya se usó. Pide uno nuevo desde la app.'
+      : 'No se pudo completar: ' + (params.get('error_description') || params.get('error')) + '. Pide un enlace nuevo desde la app.');
+    history.replaceState(null, '', location.pathname);
+    return;
+  }
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { flowType: 'implicit', detectSessionInUrl: true, persistSession: false, autoRefreshToken: false }
+  });
+  let recovery = params.get('type') === 'recovery';
+  sb.auth.onAuthStateChange(ev => { if (ev === 'PASSWORD_RECOVERY') recovery = true; });
+  const { data } = await sb.auth.getSession();
+  history.replaceState(null, '', location.pathname); // quita los datos del enlace de la barra de direcciones
+
+  if (!data.session) {
+    show('Tu cuenta', 'Esta página se abre desde los enlaces de los emails de Shooty. Si buscas ayuda, visita la página de soporte.');
+    return;
+  }
+  if (!recovery) {
+    show('¡Email confirmado!', 'Tu cuenta de Shooty ya está activa. Vuelve a la app e inicia sesión con tu email y tu contraseña.');
+    await sb.auth.signOut({ scope: 'local' });
+    return;
+  }
+
+  show('Nueva contraseña', 'Elige la contraseña nueva para tu cuenta de Shooty.');
+  $('form').classList.remove('hidden');
+  $('pass').focus();
+  $('form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const p = $('pass').value, msg = $('msg');
+    msg.classList.add('err');
+    if (p.length < 8) { msg.textContent = 'La contraseña debe tener al menos 8 caracteres.'; return; }
+    if (p !== $('pass2').value) { msg.textContent = 'Las dos contraseñas no coinciden.'; return; }
+    $('guardar').disabled = true; msg.textContent = '';
+    const { error } = await sb.auth.updateUser({ password: p });
+    $('guardar').disabled = false;
+    if (error) {
+      msg.textContent = /weak|pwned|compromised/i.test(error.message)
+        ? 'Esa contraseña es demasiado fácil o ha aparecido en filtraciones. Elige otra.'
+        : /same|different/i.test(error.message) ? 'La contraseña nueva tiene que ser distinta de la anterior.'
+        : 'No se pudo guardar: ' + error.message;
+      return;
+    }
+    $('form').classList.add('hidden');
+    show('Contraseña cambiada', 'Listo. Vuelve a Shooty e inicia sesión con tu contraseña nueva.');
+    await sb.auth.signOut({ scope: 'local' });
+  });
+})();
+</script>
+</body>
+</html>
